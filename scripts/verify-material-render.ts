@@ -53,6 +53,12 @@
  *    preset attribute), and applyThemeSurface() flips the preset in place —
  *    attribute changes, stale overrides clear, the waterfall DOM is NOT
  *    rebuilt (no vault rescan for a pure CSS change).
+ * 16. Folder-settings pin (right of the heart): the popup saves the CURRENT
+ *    scan scope + excludes under a typed name (Enter or the save button; an
+ *    empty name notices instead), page rows mark the one matching the live
+ *    config, clicking a row swaps the folders through onConfigChange and
+ *    rescopes the waterfall in place, × deletes a page without closing.
+ *    No storage hooks → the button stays hidden.
  *
  * Pure scanning/sorting/column math is covered by verify-material.
  * Run: `npm run test:material-render`
@@ -68,7 +74,7 @@ import { AgentPromptModal } from '../src/agent-prompt-modal';
 import { MediaLightboxModal } from '../src/media-lightbox-modal';
 import { MediaTagEditModal } from '../src/media-tag-editor-modal';
 import { t } from '../src/i18n';
-import type { MaterialLibraryConfig, MaterialSkillButton } from '../src/types';
+import type { MaterialFolderPage, MaterialLibraryConfig, MaterialSkillButton } from '../src/types';
 
 // Real obsidian types don't know the stub's capture hooks (`Modal.last`,
 // `StubNotice.messages`).
@@ -1382,6 +1388,133 @@ async function main(): Promise<void> {
 	const coverImg15 = findByClass(tileOf15('素材/cover.png'), 'dashboard-material-img')[0]!;
 	assert.equal(articleImg15.getAttribute('src'), coverImg15.getAttribute('src'), 'the text tile and its cover image share the source');
 	assert.notStrictEqual(articleImg15, coverImg15, 'but keep distinct img nodes');
+
+	// --- 16. Folder-settings pin: named scope pages, one-click swap -----------
+	// The view backs the hooks with settings; this harness mirrors that with
+	// an in-memory page list + a live config object the onConfigChange hook
+	// writes back into (so the getter reflects an applied page immediately).
+	const pinLive: MaterialLibraryConfig = { includeFolders: ['素材'], excludeFolders: [], skillButtons: [] };
+	const pinPages: MaterialFolderPage[] = [];
+	let pinSeq = 0;
+	const pinSavedCalls: Array<{ name: string; includes: string[]; excludes: string[] }> = [];
+	const pinRemovedIds: string[] = [];
+	const pinHost = new El('div');
+	bodyHost.appendChild(pinHost);
+	const pinController = renderMaterialLibrary(pinHost as unknown as HTMLElement, {
+		app,
+		getConfig: () => pinLive,
+		onConfigChange: cfg => { savedConfigs.push(cfg); Object.assign(pinLive, cfg); },
+		onOpenSettings: () => {},
+		tagStore,
+		folderPages: {
+			list: () => [...pinPages],
+			save: (name, cfg) => {
+				pinSavedCalls.push({ name, includes: [...cfg.includeFolders], excludes: [...cfg.excludeFolders] });
+				pinPages.push({ id: `pin-${pinSeq++}`, name, includeFolders: [...cfg.includeFolders], excludeFolders: [...cfg.excludeFolders] });
+			},
+			remove: id => {
+				pinRemovedIds.push(id);
+				const idx = pinPages.findIndex(p => p.id === id);
+				if (idx >= 0) pinPages.splice(idx, 1);
+			},
+		},
+	});
+	const pinPopupOf = (): El => {
+		const found = findByClass(bodyHost, 'dashboard-material-pinpop')[0]!;
+		assert.ok(found, 'the pin popup is mounted at the body');
+		return found!;
+	};
+	const pinRowNamed = (popup: El, name: string): El => {
+		const found = findByClass(popup, 'dashboard-material-pin-row').find(r => findByClass(r, 'dashboard-material-pin-name')[0]!.textContent === name);
+		assert.ok(found, `pin row for ${name}`);
+		return found!;
+	};
+
+	// a) the pin sits DIRECTLY right of the heart, inside the right cluster;
+	//    controllers mounted without storage hooks keep the button hidden.
+	const pinToolbar = findByClass(pinHost, 'dashboard-material-toolbar')[0]!;
+	const pinBtnEl = findByClass(pinHost, 'dashboard-material-pin-btn')[0]!;
+	assert.ok(pinBtnEl, 'pin button mounted');
+	assert.equal(pinBtnEl.parent, pinToolbar, 'pin sits directly on the toolbar (no chip-well)');
+	const pinHeartIdx = pinToolbar.children.indexOf(findByClass(pinHost, 'dashboard-material-favorites-btn')[0]!);
+	const pinIdx16 = pinToolbar.children.indexOf(pinBtnEl);
+	const pinStyleIdx = pinToolbar.children.indexOf(findByClass(pinHost, 'dashboard-material-style-btn')[0]!);
+	assert.equal(pinIdx16, pinHeartIdx + 1, 'pin sits directly right of the favorites heart');
+	assert.ok(pinIdx16 < pinStyleIdx, 'and stays left of the style switch (right cluster)');
+	assert.ok(findByClass(fxHost, 'dashboard-material-pin-btn')[0]!.hasClass('is-hidden'), 'no storage hooks → the pin button hides');
+
+	// b) open: name input + save button + the empty state; an EMPTY name
+	//    notices instead of saving.
+	pinBtnEl.click();
+	const pinPop1 = pinPopupOf();
+	const pinInput = findTag(pinPop1, 'input')[0] as unknown as El & { value: string };
+	assert.equal(pinInput.getAttribute('placeholder'), t('material.pinNamePlaceholder'), 'the name input carries the placeholder');
+	assert.ok(findTag(pinPop1, 'button').some(b => b.textContent === t('common.save')), 'the save button rides the row');
+	assert.ok(findByClass(pinPop1, 'dashboard-library-config-hint').some(el => el.textContent === t('material.pinEmpty')), 'no pages yet → the empty state shows');
+	StubNotice.messages.length = 0;
+	(findTag(pinPop1, 'button').find(b => b.textContent === t('common.save')) as unknown as El)!.click();
+	assert.deepEqual(pinSavedCalls, [], 'an empty name saves nothing');
+	assert.deepEqual(StubNotice.messages, [t('material.pinNameRequired')], 'and asks for a name first');
+
+	// c) Enter commits: the CURRENT scope snapshots under the typed name and
+	//    the row renders active (it matches the live config).
+	StubNotice.messages.length = 0;
+	pinInput.value = '素材范围';
+	pinInput.dispatchEvent({ type: 'keydown', key: 'Enter' });
+	assert.deepEqual(pinSavedCalls, [{ name: '素材范围', includes: ['素材'], excludes: [] }], 'save snapshots the scan scope + excludes');
+	assert.deepEqual(StubNotice.messages, [t('material.pinSaved', { name: '素材范围' })], 'one notice confirms the save');
+	const row16a = pinRowNamed(pinPopupOf(), '素材范围');
+	assert.equal(findByClass(row16a, 'dashboard-material-pin-scope')[0]!.textContent, '素材', 'the summary names the include folders');
+	assert.equal(row16a.hasClass('active'), true, 'a row matching the live config is active');
+
+	// d) widen the live scope: the row drops its match, and a second page
+	//    saved now snapshots the whole-vault shape ('全仓库' summary).
+	pinLive.includeFolders = [];
+	pinController.refresh();
+	assert.equal(tilePaths(pinHost).length, 5, 'widened scope tiles the outside file too');
+	pinBtnEl.click(); // close
+	pinBtnEl.click(); // reopen → active states recomputed
+	assert.equal(pinRowNamed(pinPopupOf(), '素材范围').hasClass('active'), false, 'the row no longer matches the widened scope');
+	const pinInput2 = findTag(pinPopupOf(), 'input')[0] as unknown as El & { value: string };
+	pinInput2.value = '全仓库';
+	(findTag(pinPopupOf(), 'button').find(b => b.textContent === t('common.save')) as unknown as El)!.click();
+	const row16b = pinRowNamed(pinPopupOf(), '全仓库');
+	assert.equal(findByClass(row16b, 'dashboard-material-pin-scope')[0]!.textContent, t('material.pinScopeAll'), 'an empty include list summarizes as whole vault');
+	assert.equal(row16b.hasClass('active'), true, 'the whole-vault page matches the live config');
+
+	// e) apply: one click swaps ONLY the folders, writes one config, closes
+	//    the popup, and rescopes the waterfall in place.
+	savedConfigs.length = 0;
+	StubNotice.messages.length = 0;
+	pinRowNamed(pinPopupOf(), '素材范围').click();
+	assert.equal(findByClass(bodyHost, 'dashboard-material-pinpop').length, 0, 'applying closes the popup');
+	assert.deepEqual(StubNotice.messages, [t('material.pinApplied', { name: '素材范围' })], 'one notice names the applied page');
+	assert.equal(savedConfigs.length, 1, 'exactly one config write rides the apply');
+	assert.deepEqual(pinLive.includeFolders, ['素材'], 'the live config takes the page folders');
+	assert.deepEqual(tilePaths(pinHost).length, 4, 'the waterfall rescopes without a remount');
+
+	// f) the other direction: the whole-vault page brings the outside file
+	//    back, and the active row follows.
+	pinBtnEl.click();
+	pinRowNamed(pinPopupOf(), '全仓库').click();
+	assert.deepEqual(pinLive.includeFolders, [], 'applying the whole-vault page clears the scope');
+	assert.equal(tilePaths(pinHost).length, 5, 'and the outside file tiles again');
+	pinBtnEl.click();
+	assert.equal(pinRowNamed(pinPopupOf(), '全仓库').hasClass('active'), true, 'the applied page is the active row');
+	assert.equal(pinRowNamed(pinPopupOf(), '素材范围').hasClass('active'), false, 'the other page is not');
+
+	// g) × deletes one page in place (the popup stays open), and a toggle
+	//    click on the pin closes it.
+	const popBeforeDel = pinPopupOf();
+	const delTargetId = pinPages.find(p => p.name === '素材范围')?.id;
+	const del16 = findByClass(pinRowNamed(popBeforeDel, '素材范围'), 'dashboard-material-pin-del')[0]!;
+	del16.click();
+	assert.deepEqual(pinRemovedIds, [delTargetId], 'the × routes the page id through remove');
+	assert.equal(findByClass(bodyHost, 'dashboard-material-pinpop')[0], popBeforeDel, 'deleting keeps the popup open');
+	assert.equal(findByClass(popBeforeDel, 'dashboard-material-pin-row').length, 1, 'only the surviving page rows remain');
+	pinBtnEl.click();
+	assert.equal(findByClass(bodyHost, 'dashboard-material-pinpop').length, 0, 'the toggle click closes the popup');
+	pinController.destroy();
 
 	console.log('verify-material-render: all assertions passed');
 }

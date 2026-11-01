@@ -29,7 +29,7 @@ import { renderSectionRail } from './section-rail';
 import { momentOf } from './datetime';
 import { MATERIAL_DROPZONE_CLASS, wireMaterialDrop } from './material-drop';
 import { wireMaterialFolderMove } from './material-dnd';
-import type { MaterialLibraryConfig, MaterialSkillButton } from './types';
+import type { MaterialFolderPage, MaterialLibraryConfig, MaterialSkillButton } from './types';
 import {
 	assignWaterfall,
 	buildMaterialItems,
@@ -77,6 +77,17 @@ export interface MaterialFavoritesHooks {
 	toggle(path: string): boolean;
 }
 
+/** Saved folder-setting pages (pin button) hooks — the view backs them with
+ *  settings so the pages follow the vault across devices like favorites. */
+export interface MaterialFolderPagesHooks {
+	/** Sanitized saved pages, newest last. */
+	list(): MaterialFolderPage[];
+	/** Snapshot the given config's scan scope + excludes under a new name. */
+	save(name: string, cfg: MaterialLibraryConfig): void;
+	/** Drop one saved page. */
+	remove(id: string): void;
+}
+
 export interface MaterialRenderContext {
 	app: App;
 	/** Fresh config per render — a GETTER, not a snapshot object: settings
@@ -93,6 +104,8 @@ export interface MaterialRenderContext {
 	 *  same behavior as dashboard card clicks. Absent → plain openLinkText. */
 	openNote?: (file: TFile) => void;
 	favorites?: MaterialFavoritesHooks;
+	/** Absent → the pin button hides (the feature needs somewhere to store). */
+	folderPages?: MaterialFolderPagesHooks;
 }
 
 /** Controller handed back to the view: external refresh + teardown. */
@@ -132,6 +145,33 @@ function readStoredDensity(app: App): MaterialDensity {
 function readStoredCardStyle(app: App): MaterialCardStyle {
 	const stored = app.loadLocalStorage(CARD_STYLE_STORAGE_KEY) as string | null;
 	return stored === 'plain' ? 'plain' : 'polaroid';
+}
+
+/** Mount a themed popup at the BODY anchored under a toolbar button. Body-level
+ *  chrome must not read as an OS sheet, so the active theme's --db-* tokens
+ *  are copied onto it; `align: 'right'` anchors the RIGHT edges (buttons in
+ *  the toolbar's right cluster would push a left-anchored popup off-screen). */
+function mountThemedBodyPopup(anchor: HTMLElement, cls: string, align: 'left' | 'right'): HTMLElement {
+	const popup = activeDocument.body.createDiv({ cls });
+	const dashboardRoot = anchor.closest<HTMLElement>('.apex-dashboard-root');
+	if (dashboardRoot) {
+		const rs = getComputedStyle(dashboardRoot);
+		['--db-bg', '--db-bg-card', '--db-bg-card-hover', '--db-border-card',
+			'--db-text', '--db-text-muted', '--db-accent', '--db-radius-md', '--db-radius-sm', '--db-font',
+			'--db-bg-input', '--db-bg-hover', '--db-bg-btn', '--db-text-normal', '--db-border-input'].forEach(v => {
+			const val = rs.getPropertyValue(v).trim();
+			if (val) popup.style.setProperty(v, val);
+		});
+	}
+	const rect = anchor.getBoundingClientRect();
+	const winW = typeof window.innerWidth === 'number' ? window.innerWidth : 0;
+	popup.setCssProps({
+		position: 'fixed',
+		top: `${rect.bottom + 4}px`,
+		...(align === 'right' ? { right: `${Math.max(0, winW - rect.right)}px` } : { left: `${rect.left}px` }),
+		zIndex: '10000',
+	});
+	return popup;
 }
 
 /** Render the whole material library into `host`. Returns a controller. */
@@ -323,19 +363,8 @@ export function renderMaterialLibrary(
 
 	function openFilterPopup(): void {
 		closeFilterPopup();
-		filterPopup = activeDocument.body.createDiv({ cls: 'dashboard-library-filter-popup' });
-		const dashboardRoot = filterBtn.closest<HTMLElement>('.apex-dashboard-root');
-		if (dashboardRoot) {
-			const rs = getComputedStyle(dashboardRoot);
-			['--db-bg', '--db-bg-card', '--db-bg-card-hover', '--db-border-card',
-				'--db-text', '--db-text-muted', '--db-accent', '--db-radius-md', '--db-radius-sm', '--db-font',
-				'--db-bg-input', '--db-bg-hover', '--db-bg-btn', '--db-text-normal', '--db-border-input'].forEach(v => {
-				const val = rs.getPropertyValue(v).trim();
-				if (val) filterPopup!.style.setProperty(v, val);
-			});
-		}
-		const rect = filterBtn.getBoundingClientRect();
-		filterPopup.setCssProps({ position: 'fixed', top: `${rect.bottom + 4}px`, left: `${rect.left}px`, zIndex: '10000' });
+		closePinPopup();
+		filterPopup = mountThemedBodyPopup(filterBtn, 'dashboard-library-filter-popup', 'left');
 
 		renderFilterPopup();
 		outsideClickHandler = (e: MouseEvent): void => {
@@ -380,6 +409,124 @@ export function renderMaterialLibrary(
 		favoritesOnly = !favoritesOnly;
 		currentPage = 1;
 		render();
+	});
+
+	// Folder-settings pin (Rae): named snapshots of the scan scope + excluded
+	// folders, one click to swap in. Directly right of the heart: click opens
+	// a popup that saves the CURRENT settings under a typed name or picks an
+	// existing page — frequent scope switches stop needing the settings modal.
+	let pinPopup: HTMLElement | null = null;
+	let pinOutsideClick: ((e: MouseEvent) => void) | null = null;
+	/** Case-insensitive set equality — the pin rows mark the page whose
+	 *  folders match the live config. */
+	const foldersEqual = (a: readonly string[], b: readonly string[]): boolean => {
+		if (a.length !== b.length) return false;
+		const lower = new Set(b.map(f => f.toLowerCase()));
+		return a.every(f => lower.has(f.toLowerCase()));
+	};
+	const pinScopeSummary = (page: Pick<MaterialFolderPage, 'includeFolders' | 'excludeFolders'>): string => {
+		const scope = page.includeFolders.length > 0 ? page.includeFolders.join(', ') : t('material.pinScopeAll');
+		return page.excludeFolders.length > 0
+			? `${scope} · ${t('material.pinExcludes', { count: page.excludeFolders.length })}`
+			: scope;
+	};
+	function closePinPopup(): void {
+		if (pinOutsideClick) {
+			activeDocument.removeEventListener('click', pinOutsideClick);
+			pinOutsideClick = null;
+		}
+		if (pinPopup) { pinPopup.remove(); pinPopup = null; }
+	}
+	/** (Re)build the pin popup in place: save-current row on top, the saved
+	 *  pages below — always re-read through the hooks so saves/deletes show. */
+	function renderPinPopup(): void {
+		if (!pinPopup || !ctx.folderPages) return;
+		const pages = ctx.folderPages.list();
+		const live = ctx.getConfig();
+		pinPopup.empty();
+		pinPopup.createDiv({ cls: 'dashboard-library-quickfilter-label', text: t('material.pinSaveCurrent') });
+		const saveRow = pinPopup.createDiv({ cls: 'dashboard-material-pin-save' });
+		const nameInput = saveRow.createEl('input', {
+			cls: 'dashboard-media-filter-folder dashboard-material-pin-input',
+			attr: { type: 'text', placeholder: t('material.pinNamePlaceholder') },
+		});
+		const saveCurrent = (): void => {
+			const name = nameInput.value.trim();
+			if (!name) { new Notice(t('material.pinNameRequired')); return; }
+			ctx.folderPages!.save(name, ctx.getConfig());
+			nameInput.value = '';
+			new Notice(t('material.pinSaved', { name }));
+			renderPinPopup();
+		};
+		nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveCurrent(); } });
+		saveRow.createEl('button', {
+			cls: 'dashboard-library-filter-popup-clear dashboard-material-pin-savebtn',
+			text: t('common.save'),
+			attr: { type: 'button' },
+		}).addEventListener('click', (ev) => { ev.stopPropagation(); saveCurrent(); });
+
+		pinPopup.createDiv({ cls: 'dashboard-library-quickfilter-label', text: t('material.pinSavedPages') });
+		if (pages.length === 0) {
+			pinPopup.createDiv({ cls: 'dashboard-library-config-hint', text: t('material.pinEmpty') });
+			return;
+		}
+		for (const page of pages) {
+			const row = pinPopup.createDiv({
+				cls: 'dashboard-material-pin-row'
+					+ (foldersEqual(page.includeFolders, live.includeFolders) && foldersEqual(page.excludeFolders, live.excludeFolders) ? ' active' : ''),
+				attr: { role: 'button' },
+			});
+			const main = row.createDiv({ cls: 'dashboard-material-pin-main' });
+			main.createDiv({ cls: 'dashboard-material-pin-name', text: page.name });
+			main.createDiv({ cls: 'dashboard-material-pin-scope', text: pinScopeSummary(page) });
+			const del = row.createSpan({
+				cls: 'dashboard-material-pin-del',
+				text: '×',
+				attr: { title: t('material.pinDelete'), 'aria-label': t('material.pinDelete') },
+			});
+			del.addEventListener('click', (ev) => {
+				ev.stopPropagation();
+				ctx.folderPages!.remove(page.id);
+				renderPinPopup();
+			});
+			row.addEventListener('click', () => {
+				// Only the folder settings ride the page — every other config
+				// field (import/archive destinations, skill buttons) stays.
+				ctx.onConfigChange({
+					...ctx.getConfig(),
+					includeFolders: [...page.includeFolders],
+					excludeFolders: [...page.excludeFolders],
+				});
+				currentPage = 1;
+				closePinPopup();
+				new Notice(t('material.pinApplied', { name: page.name }));
+				render();
+			});
+		}
+	}
+	function openPinPopup(): void {
+		closeFilterPopup();
+		pinPopup = mountThemedBodyPopup(pinBtn, 'dashboard-library-filter-popup dashboard-material-pinpop', 'right');
+		renderPinPopup();
+		pinOutsideClick = (e: MouseEvent): void => {
+			if (!pinPopup) return;
+			const target = e.target as Node;
+			if (pinPopup.contains(target) || pinBtn.contains(target)) return;
+			if (target.instanceOf(Element) && target.closest('.modal-container')) return;
+			closePinPopup();
+		};
+		window.setTimeout(() => activeDocument.addEventListener('click', pinOutsideClick!), 0);
+	}
+	const pinBtn = toolbar.createDiv({
+		cls: 'dashboard-library-view-btn dashboard-material-pin-btn',
+		attr: { 'aria-label': t('material.pin'), title: t('material.pin'), role: 'button' },
+	});
+	setIcon(pinBtn, 'pin');
+	// No storage hooks (harness mounts without them) → the button hides.
+	if (!ctx.folderPages) pinBtn.addClass('is-hidden');
+	pinBtn.addEventListener('click', (e) => {
+		e.stopPropagation();
+		if (pinPopup) closePinPopup(); else openPinPopup();
 	});
 
 	// Card style switch (Rae): flips between the original cover-only tiles and
@@ -469,6 +616,7 @@ export function renderMaterialLibrary(
 		mounter?.disconnect();
 		releaseVideoMedia(resultArea);
 		closeFilterPopup();
+		closePinPopup();
 		if (imgPoolSweepTimer !== null) {
 			window.clearTimeout(imgPoolSweepTimer);
 			imgPoolSweepTimer = null;

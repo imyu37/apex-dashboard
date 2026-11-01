@@ -12,7 +12,7 @@
  * column.
  */
 
-import type { AgentTarget, MaterialLibraryConfig, MaterialSkillButton } from './types';
+import type { AgentTarget, MaterialFolderPage, MaterialLibraryConfig, MaterialSkillButton } from './types';
 import { normalizeExcludeFolders, isUnderExcludedFolder } from './exclude-folders';
 
 /** File extensions the material library types specially (superset: images +
@@ -325,4 +325,28 @@ export function sanitizeMaterialConfig(raw: unknown, validAgents: readonly Agent
 		importFolder: typeof obj.importFolder === 'string' ? normalizeImportFolder(obj.importFolder) : '',
 	archiveFolder: typeof obj.archiveFolder === 'string' ? normalizeImportFolder(obj.archiveFolder) : '',
 	};
+}
+
+/** Sanitize saved folder-setting pages (old/garbage data.json entries): keep
+ *  only entries with a usable name, normalizing folder lists the same way the
+ *  live config does. */
+export function sanitizeMaterialFolderPages(raw: unknown): MaterialFolderPage[] {
+	if (!Array.isArray(raw)) return [];
+	const strList = (v: unknown): string[] => Array.isArray(v)
+		? v.filter((x): x is string => typeof x === 'string')
+		: [];
+	const out: MaterialFolderPage[] = [];
+	for (const entry of raw) {
+		if (!entry || typeof entry !== 'object') continue;
+		const e = entry as Record<string, unknown>;
+		const name = typeof e.name === 'string' ? e.name.trim() : '';
+		if (!name) continue;
+		out.push({
+			id: typeof e.id === 'string' && e.id ? e.id : `mp_${Date.now().toString(36)}_${out.length}`,
+			name,
+			includeFolders: normalizeIncludeFolders(strList(e.includeFolders)),
+			excludeFolders: strList(e.excludeFolders),
+		});
+	}
+	return out;
 }

@@ -26,6 +26,9 @@
  *    dropped; invalid agent ids fall back to claudian; directSend only kept
  *    when literally true; the drop-in importFolder normalizes (and defaults to
  *    '' on garbage).
+ * 10. sanitizeMaterialFolderPages: non-array → []; entries without a usable
+ *     name dropped; name trimmed; includes normalized like the live config;
+ *     missing ids regenerate.
  *
  * Run: `npm run test:material`
  */
@@ -36,7 +39,7 @@ import {
 	materialKindFor, normalizeIncludeFolders, buildMaterialItems,
 	filterMaterialItems, sortMaterialItems, groupMaterialItems, paginateMaterial,
 	materialColumnCount, assignWaterfall, materialSkillVars, effectiveMaterialTemplate,
-	sanitizeMaterialConfig,
+	sanitizeMaterialConfig, sanitizeMaterialFolderPages,
 } from '../src/material-model';
 import { IMAGE_EXTS, VIDEO_EXTS } from '../src/media-section';
 
@@ -250,5 +253,22 @@ assert.deepEqual(saved.skillButtons[0], {
 assert.equal(saved.skillButtons[1]!.agent, 'claudian', 'invalid agent id falls back to claudian');
 assert.ok(saved.skillButtons[1]!.id.startsWith('mb_'), 'missing ids regenerate');
 assert.equal('directSend' in saved.skillButtons[1]!, false, 'directSend only kept when literally true');
+
+// --- 10. sanitizeMaterialFolderPages (pin-button storage) -------------------
+assert.deepEqual(sanitizeMaterialFolderPages(undefined), [], 'absent storage → no pages');
+assert.deepEqual(sanitizeMaterialFolderPages('nope'), [], 'non-array storage → no pages');
+const pages = sanitizeMaterialFolderPages([
+	{ id: 'p1', name: '  素材范围  ', includeFolders: [' /素材/ ', ''], excludeFolders: ['回收站', 7] },
+	{ id: 'p2', name: '', includeFolders: ['素材'] },               // no name → dropped
+	{ name: '无 id', includeFolders: [] },                          // id regenerates
+	'not an object',                                                // dropped
+	null,                                                           // dropped
+]);
+assert.equal(pages.length, 2, 'nameless/garbage entries dropped');
+assert.deepEqual(pages[0], { id: 'p1', name: '素材范围', includeFolders: ['素材'], excludeFolders: ['回收站'] },
+	'name trimmed, includes normalized, non-string excludes dropped');
+assert.equal(pages[0]!.includeFolders.length, 1, 'the empty include entry folds away');
+assert.ok(pages[1]!.id.startsWith('mp_'), 'a missing id regenerates');
+assert.equal(pages[1]!.name, '无 id', 'the id-less entry otherwise survives');
 
 console.log('verify-material: all assertions passed');
