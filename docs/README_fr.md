@@ -133,6 +133,9 @@ Si Apex Dashboard rend votre quotidien Obsidian plus fluide, pensez à m'offrir 
 
 ## Nouveautés
 
+### 3.9.4
+- **Pages de dossiers de la bibliothèque de matériaux (épingle)** — un nouveau bouton épingle à droite du cœur des favoris enregistre le périmètre de scan et les dossiers exclus actuels en page nommée ; un clic sur une page enregistrée échange les dossiers en un geste, le × supprime à la volée, et les pages se synchronisent entre appareils via data.json
+
 ### 3.9.3
 - **Archivage dans la bibliothèque de matériel** — un nouveau bouton d'archivage dans la barre d'actions droite déplace la sélection vers le dossier d'archivage configuré ; une notification invite à le régler s'il est vide
 - **Notes référencées dans la visionneuse** — la vue image/vidéo liste en bas toutes les notes qui lient ou intègrent l'élément, avec un saut en un clic

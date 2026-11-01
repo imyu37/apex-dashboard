@@ -133,6 +133,9 @@ Wenn Apex Dashboard deinen täglichen Obsidian-Workflow reibungsloser macht, spe
 
 ## Was ist neu
 
+### 3.9.4
+- **Ordnerseiten in der Materialbibliothek (Pin)** — eine neue Pin-Schaltfläche rechts vom Favoriten-Herz speichert den aktuellen Scan-Bereich und die ausgeschlossenen Ordner als benannte Seite; ein Klick auf eine gespeicherte Seite wechselt die OrdnerEinstellungen auf einen Schlag, das × löscht sofort, und die Seiten synchronisieren über data.json geräteübergreifend
+
 ### 3.9.3
 - **Archivieren in der Materialbibliothek** — neuer Archivieren-Button in der rechten Aktionsleiste verschiebt die Auswahl in den in den Einstellungen gesetzten Archivordner; ohne Ordner erscheint ein Hinweis zur Einrichtung
 - **Referenzierende Notizen im Lightbox** — die Bild-/Video-Ansicht listet unten alle Notizen, die das Material verlinken oder einbetten, mit Ein-Klick-Sprung

@@ -133,6 +133,9 @@ If Apex Dashboard makes your daily Obsidian workflow smoother, consider buying m
 
 ## What's New
 
+### 3.9.4
+- **Material library folder pages (pin)** — a new pin button right of the favorites heart saves the current scan scope and excluded folders as a named page; click a saved page to swap the folder settings in one go, remove pages inline with ×, and the pages sync across devices via data.json
+
 ### 3.9.3
 - **Material library archive** — a new archive button on the right action rail moves the selection into the archive folder configured in settings, with a notice prompting the setup when unset
 - **Lightbox backlinks** — the image/video viewer lists every note that links or embeds the asset at the bottom; click to jump

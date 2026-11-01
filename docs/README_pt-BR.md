@@ -133,6 +133,9 @@ Se o Apex Dashboard torna seu fluxo de trabalho diário no Obsidian mais fluido,
 
 ## Novidades
 
+### 3.9.4
+- **Páginas de pastas da biblioteca de materiais (alfinete)** — um novo botão de alfinete à direita do coração de favoritos salva o escopo de varredura e as pastas excluídas atuais como uma página nomeada; um clique numa página salva troca as pastas de uma vez, o × remove na hora e as páginas sincronizam entre dispositivos via data.json
+
 ### 3.9.3
 - **Arquivar na biblioteca de material** — novo botão arquivar na barra de ações à direita move a seleção para a pasta de arquivo configurada nos ajustes; sem pasta configurada, um aviso convida a defini-la
 - **Notas referenciadas no visualizador** — a visualização de imagem/vídeo lista no rodapé todas as notas que referenciam ou incorporam o item, com salto em um clique

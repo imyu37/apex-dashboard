@@ -133,6 +133,9 @@ Si Apex Dashboard hace más fluido tu flujo de trabajo diario en Obsidian, consi
 
 ## Novedades
 
+### 3.9.4
+- **Páginas de carpetas en la biblioteca de materiales (chincheta)** — un nuevo botón de chincheta a la derecha del corazón de favoritos guarda el ámbito de escaneo y las carpetas excluidas actuales como una página con nombre; un clic en una página guardada cambia la configuración de carpetas de una vez, la × elimina al instante y las páginas se sincronizan entre dispositivos vía data.json
+
 ### 3.9.3
 - **Archivado en la biblioteca de material** — nuevo botón de archivar en la barra de acciones derecha: mueve el material seleccionado a la carpeta de archivo configurada en ajustes, con un aviso que pide configurarla si está vacía
 - **Notas referenciadas en el visor** — la vista de imágenes y vídeos muestra abajo todas las notas que enlazan o incrustan el recurso, con salto en un clic
